@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vscode/
+
+# Private data and secrets: never upload these
+auth.json
+attendance_data.json
+rules.json
+app_settings.json
+email_password.txt
+*.tmp
