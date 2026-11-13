@@ -11,3 +11,6 @@ rules.json
 app_settings.json
 email_password.txt
 *.tmp
+build/
+dist/
+*.spec

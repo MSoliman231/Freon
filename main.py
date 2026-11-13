@@ -17,7 +17,7 @@ import i18n
 import resources
 from i18n import tr
 from attend import AttendancePage
-from settings import EMAIL_PATTERN
+from settings import EMAIL_PATTERN, ForgotPasswordDialog
 
 # Unlock animation timing (maximum allowed is 2 seconds)
 FADE_MS = 900   # lock -> unlock cross-fade
@@ -293,6 +293,17 @@ class MainWindow(QMainWindow):
         self.error_label.setAlignment(Qt.AlignCenter)
         self.error_label.setStyleSheet("color: red;")
 
+        # "Forgot password?" link-style button
+        self.forgot_button = QPushButton(tr("Forgot password?"))
+        self.forgot_button.setFlat(True)
+        self.forgot_button.setCursor(Qt.PointingHandCursor)
+        self.forgot_button.setStyleSheet(
+            "QPushButton { border: none; color: #4da3ff; "
+            "text-decoration: underline; padding: 4px; }"
+            "QPushButton:hover { color: #80bfff; }"
+        )
+        self.forgot_button.clicked.connect(self.open_forgot_password)
+
         layout.addWidget(title_box, alignment=Qt.AlignCenter)
         layout.addSpacing(16)
         layout.addWidget(self.prompt_label)
@@ -301,9 +312,17 @@ class MainWindow(QMainWindow):
         layout.addSpacing(6)
         layout.addWidget(self.show_password, alignment=Qt.AlignCenter)
         layout.addWidget(self.error_label)
+        layout.addWidget(self.forgot_button, alignment=Qt.AlignCenter)
         layout.addSpacing(20)
         layout.addWidget(self.make_language_row(), alignment=Qt.AlignCenter)
         return page
+
+    def open_forgot_password(self):
+        if self.unlocking:
+            return
+        self.forgot_dialog = ForgotPasswordDialog(self)
+        self.forgot_dialog.exec()
+        self.password_input.setFocus()
 
     # ---------- Language ----------
     def change_language(self, code):
@@ -319,6 +338,7 @@ class MainWindow(QMainWindow):
         # Lock screen texts
         self.prompt_label.setText(tr("Type your password"))
         self.show_password.setText(tr("Show password"))
+        self.forgot_button.setText(tr("Forgot password?"))
         self.error_label.setText("")
         self.password_input.clear()
 
@@ -348,6 +368,7 @@ class MainWindow(QMainWindow):
     def set_inputs_enabled(self, enabled):
         self.password_input.setEnabled(enabled)
         self.show_password.setEnabled(enabled)
+        self.forgot_button.setEnabled(enabled)
         for _, button in self.language_buttons:
             button.setEnabled(enabled)
 

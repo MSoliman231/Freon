@@ -4,8 +4,9 @@ import json
 import os
 import secrets
 from pathlib import Path
+import paths
 
-AUTH_FILE = Path(__file__).resolve().parent / "auth.json"
+AUTH_FILE = paths.data_dir() / "auth.json"
 
 PASSWORD_LENGTH = 6       # length of generated passwords
 MIN_PASSWORD_LENGTH = 4   # shortest password you can choose yourself

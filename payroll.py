@@ -1,8 +1,9 @@
 import json
 import os
 from pathlib import Path
+import paths
 
-RULES_FILE = Path(__file__).resolve().parent / "rules.json"
+RULES_FILE = paths.data_dir() / "rules.json"
 
 RULE_STATES = ("Late-1", "Late-2", "Absent")
 

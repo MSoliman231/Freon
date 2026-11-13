@@ -1,8 +1,8 @@
-from pathlib import Path
-
 from PySide6.QtGui import QIcon, QPixmap
 
-ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+import paths
+
+ASSETS_DIR = paths.resource_dir() / "Assets"
 
 
 def asset_path(name):

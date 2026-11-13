@@ -17,11 +17,12 @@ import auth
 import i18n
 import payroll
 import payslip
+import paths
 import resources
 from i18n import tr
 from settings import SettingsWindow
 
-DATA_FILE = Path(__file__).resolve().parent / "attendance_data.json"
+DATA_FILE = paths.data_dir() / "attendance_data.json"
 
 # Click a cell to cycle through these states (stored in English in the file)
 STATES = ["", "Present", "Late-1", "Late-2", "Absent"]

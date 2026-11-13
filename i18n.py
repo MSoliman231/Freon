@@ -1,10 +1,11 @@
 import calendar
 import json
-from pathlib import Path
 
 from PySide6.QtCore import Qt
 
-SETTINGS_FILE = Path(__file__).resolve().parent / "app_settings.json"
+import paths
+
+SETTINGS_FILE = paths.data_dir() / "app_settings.json"
 
 LANGUAGES = {"en": "English", "ar": "العربية"}
 
@@ -17,20 +18,17 @@ DAYS_AR = ["الاثنين", "الثلاثاء", "الأربعاء", "الخمي
 
 HINT = (
     "Click a day to cycle: Present → Late-1 → Late-2 → Absent → empty   |   "
-    "Right-click a day to add a note   |   Click a name to outline their month"
-    "Click a day to cycle: Present → Late-1 → Late-2 → Absent → empty   |   "
     "Right-click a day to add a note   |   Click a name to outline their month   |   "
     "Double-click a name to edit it"
 )
 
-
 # English text -> Arabic text. Anything missing here stays in English.
 AR = {
-    # ----- lock screen -----
+    # ----- lock screen and first-start setup -----
     "Type your password": "اكتب كلمة المرور",
     "Show password": "إظهار كلمة المرور",
     "Wrong password": "كلمة المرور غير صحيحة",
-        "Set up your password": "إعداد كلمة المرور",
+    "Set up your password": "إعداد كلمة المرور",
     "Enter your email and choose a password for the app.":
         "أدخل بريدك الإلكتروني واختر كلمة مرور للتطبيق.",
     "New password": "كلمة المرور الجديدة",
@@ -40,17 +38,25 @@ AR = {
         "يجب ألا تقل كلمة المرور عن {count} أحرف.",
     "The passwords do not match.": "كلمتا المرور غير متطابقتين.",
     "Could not save the password ({error}).": "تعذر حفظ كلمة المرور ({error}).",
-        "Edit name": "تعديل الاسم",
-    'Enter the new name for "{name}":': 'أدخل الاسم الجديد لـ "{name}":',
-    '"{name}" already exists.': '"{name}" موجود بالفعل.',
+
+    # ----- forgot password -----
+    "Forgot password?": "هل نسيت كلمة المرور؟",
+    "Forgot password": "نسيت كلمة المرور",
+    "Enter the email you used when you set up the app. A new password will be sent to it.":
+        "أدخل البريد الإلكتروني الذي استخدمته عند إعداد التطبيق. سيتم إرسال كلمة مرور جديدة إليه.",
+    "Send new password": "إرسال كلمة مرور جديدة",
+    "No email is saved for this app yet. Unlock the app and set one in Settings → Change password.":
+        "لا يوجد بريد إلكتروني محفوظ لهذا التطبيق بعد. افتح التطبيق وأضفه من الإعدادات ← تغيير كلمة المرور.",
+    "This is not the email used to set up the app.":
+        "هذا ليس البريد الإلكتروني المستخدم عند إعداد التطبيق.",
+    "A new password was sent to {email}. Use it to unlock the app.":
+        "تم إرسال كلمة مرور جديدة إلى {email}. استخدمها لفتح التطبيق.",
 
     # ----- attendance page -----
     "Lock": "قفل",
     "Settings": "الإعدادات",
     "Type a name and press Enter": "اكتب الاسم ثم اضغط Enter",
-    "Monthly salary": "الراتب الشهري",
-    "Salary for {days}/{total} days": "الراتب عن الأيام ({days}/{total})",
-HINT: (
+    HINT: (
         "اضغط على اليوم للتبديل: حاضر ← تأخير 1 ← تأخير 2 ← غائب ← فارغ   |   "
         "اضغط بزر الفأرة الأيمن على اليوم لإضافة ملاحظة   |   "
         "اضغط على الاسم لإبراز شهره   |   اضغط مرتين على الاسم لتعديله"
@@ -74,6 +80,9 @@ HINT: (
     "Money {name} borrowed on {day} {month}\n(it will be subtracted from their salary):":
         "المبلغ الذي اقترضه {name} يوم {day} {month}\n(سيتم خصمه من راتبه):",
     "Borrowed: {amount}": "السلفة: {amount}",
+    "Edit name": "تعديل الاسم",
+    'Enter the new name for "{name}":': 'أدخل الاسم الجديد لـ "{name}":',
+    '"{name}" already exists.': '"{name}" موجود بالفعل.',
     "Choose the names to export:": "اختر الأسماء المراد تصديرها:",
     "Select all": "تحديد الكل",
     "OK": "موافق",
@@ -125,7 +134,8 @@ HINT: (
     "Not marked": "غير مسجل",
     "Borrowed": "السلفة",
     "Total discount": "إجمالي الخصم",
-    "Salary before": "الراتب قبل الخصم",
+    "Monthly salary": "الراتب الشهري",
+    "Salary for {days}/{total} days": "الراتب عن الأيام ({days}/{total})",
     "Discount": "الخصم",
     "Salary after": "الراتب بعد الخصم",
     "Not set": "غير محدد",

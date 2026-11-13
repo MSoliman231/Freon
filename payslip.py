@@ -9,7 +9,7 @@ from PySide6.QtGui import (
     QImage, QPainter, QPixmap, QFont, QFontMetrics, QColor, QPen, QPageSize
 )
 from PySide6.QtCore import Qt, QRectF, QPointF
-from PySide6.QtPrintSupport import QPrinter, QPrintDialog
+from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
 
 import i18n
 import payroll
@@ -32,6 +32,9 @@ ROW_H = 66
 STEP = 88
 
 COUNTED_STATES = ("Present", "Late-1", "Late-2", "Absent")
+
+BLACK = "#000000"
+WHITE = "#ffffff"
 
 
 def money(value):
@@ -128,7 +131,7 @@ def put(painter, rect, text, side, rtl):
     painter.drawText(rect, flags, text)
 
 
-def draw_row(painter, x, y, w, label, value, rtl, bold=False, color="#212121"):
+def draw_row(painter, x, y, w, label, value, rtl, bold=False, color=BLACK):
     start = "right" if rtl else "left"
     end = "left" if rtl else "right"
 
@@ -163,10 +166,11 @@ def draw_card(painter, rect, s, rtl):
     pad = 40
     start = "right" if rtl else "left"
     end = "left" if rtl else "right"
+    black = QColor(BLACK)
 
-    # Paper-like card
-    painter.setPen(QPen(QColor("#9e9e9e"), 3))
-    painter.setBrush(QColor("#fcfcfc"))
+    # Card: white with a black border
+    painter.setPen(QPen(black, 3))
+    painter.setBrush(QColor(WHITE))
     painter.drawRoundedRect(rect, 25, 25)
 
     x = rect.x() + pad
@@ -185,11 +189,10 @@ def draw_card(painter, rect, s, rtl):
     name_font = make_font(60, True)
     name = QFontMetrics(name_font).elidedText(s["name"], Qt.ElideRight, int(name_w))
     painter.setFont(name_font)
-    painter.setPen(QColor("#111111"))
+    painter.setPen(black)
     put(painter, name_rect, name, start, rtl)
 
     painter.setFont(make_font(30))
-    painter.setPen(QColor("#444444"))
     printed = s["printed_at"].strftime("%Y-%m-%d  %H:%M")
     info = (
         f"{tr('Month:')} {i18n.month_name(s['month'])} {s['year']}\n"
@@ -197,10 +200,10 @@ def draw_card(painter, rect, s, rtl):
     )
     put(painter, info_rect, info, end, rtl)
 
-    painter.setPen(QPen(QColor("#bdbdbd"), 2))
+    painter.setPen(QPen(black, 2))
     painter.drawLine(QPointF(x, top + 125), QPointF(x + inner_w, top + 125))
 
-    # ----- Three columns -----
+    # ----- Three columns (the discounts column is the widest) -----
     col_gap = 40
     usable = inner_w - 2 * col_gap
     widths = [usable * 0.23, usable * 0.41, usable * 0.36]
@@ -209,14 +212,14 @@ def draw_card(painter, rect, s, rtl):
     row_y = top + 205
 
     # Vertical lines between the three columns
-    painter.setPen(QPen(QColor("#bdbdbd"), 2))
+    painter.setPen(QPen(black, 2))
     ordered = sorted(zip(xs, widths))  # left to right
     for (left_x, left_w), _ in zip(ordered, ordered[1:]):
         line_x = left_x + left_w + col_gap / 2
         painter.drawLine(QPointF(line_x, top + 145), QPointF(line_x, rect.bottom() - 30))
 
     painter.setFont(make_font(38, True))
-    painter.setPen(QColor("#1565c0"))
+    painter.setPen(black)
     titles = (tr("Attendance"), tr("Discounts"), tr("Salary"))
     for cx, cw, title in zip(xs, widths, titles):
         put(painter, QRectF(cx, title_y, cw, 56), title, start, rtl)
@@ -242,7 +245,7 @@ def draw_card(painter, rect, s, rtl):
              money(s["borrowed"]), rtl)
 
     total_y = borrowed_y + STEP
-    painter.setPen(QPen(QColor("#bdbdbd"), 2))
+    painter.setPen(QPen(black, 2))
     painter.drawLine(QPointF(xs[1], total_y), QPointF(xs[1] + widths[1], total_y))
     draw_row(painter, xs[1], total_y + 6, widths[1], tr("Total discount"),
              money(s["total_discount"]), rtl, bold=True)
@@ -262,13 +265,13 @@ def draw_card(painter, rect, s, rtl):
     draw_row(painter, xs[2], row_y + 2 * STEP, widths[2], tr("Discount"),
              "- " + money(s["total_discount"]), rtl)
 
-    positive = after is None or after >= 0
+    # Salary after: white box with a black border
     box = QRectF(xs[2] - 10, row_y + 3 * STEP + 14, widths[2] + 20, 150)
-    painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor("#e8f5e9" if positive else "#ffebee"))
+    painter.setPen(QPen(black, 3))
+    painter.setBrush(Qt.NoBrush)
     painter.drawRoundedRect(box, 15, 15)
 
-    painter.setPen(QColor("#2e7d32" if positive else "#c62828"))
+    painter.setPen(black)
     painter.setFont(make_font(32, True))
     put(painter, QRectF(box.x() + 15, box.y() + 8, box.width() - 30, 45),
         tr("Salary after"), start, rtl)
@@ -299,7 +302,7 @@ def draw_page(painter, target, slips, page_no, page_count):
         top = MARGIN_TOP + i * (CARD_H + GAP)
         draw_card(painter, QRectF(MARGIN_X, top, CARD_W, CARD_H), s, rtl)
 
-    painter.setPen(QColor("#777777"))
+    painter.setPen(QColor(BLACK))
     painter.setFont(make_font(26))
     footer = f"FREON  -  {tr('Page')} {ltr(f'{page_no} / {page_count}')}"
     put(painter, QRectF(MARGIN_X, PAGE_H - MARGIN_BOTTOM + 25, CARD_W, 50),
@@ -403,9 +406,13 @@ class PayslipPreviewDialog(QDialog):
     def print_pages(self):
         printer = QPrinter(QPrinter.HighResolution)
         printer.setPageSize(QPageSize(QPageSize.A4))
-        dialog = QPrintDialog(printer, self)
-        if dialog.exec() == QDialog.Accepted:
-            self.paint_to_printer(printer)
+
+        preview = QPrintPreviewDialog(printer, self)
+        preview.setWindowTitle(tr("Print"))
+        preview.setWindowIcon(resources.icon("export.png"))
+        preview.resize(1100, 850)
+        preview.paintRequested.connect(self.paint_to_printer)
+        preview.exec()
 
     def save_pdf(self):
         path, _ = QFileDialog.getSaveFileName(

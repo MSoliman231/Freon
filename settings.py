@@ -10,10 +10,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread, Signal
 
 import auth
+import paths
 import payroll
 import resources
 from i18n import tr
-from pathlib import Path
 
 # ---------- Email sender settings ----------
 SMTP_SERVER = "smtp.gmail.com"
@@ -22,12 +22,16 @@ SENDER_EMAIL = "freon.support@gmail.com"
 
 
 def _load_app_password():
-    """Reads the Gmail app password from email_password.txt (never uploaded to GitHub)."""
-    try:
-        text = (Path(__file__).resolve().parent / "email_password.txt").read_text(encoding="utf-8")
-        return text.strip() or "your_app_password"
-    except OSError:
-        return "your_app_password"
+    """The Gmail app password: first from the user's data folder, otherwise
+    from the copy packed into the program when it was built."""
+    for folder in (paths.data_dir(), paths.resource_dir()):
+        try:
+            text = (folder / "email_password.txt").read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if text:
+            return text
+    return "your_app_password"
 
 
 SENDER_APP_PASSWORD = _load_app_password()
@@ -73,6 +77,123 @@ class EmailWorker(QThread):
             self.failed.emit(tr("Login failed. Check the sender email and app password in settings.py."))
         except Exception as e:
             self.failed.emit(tr("Could not send the email: {error}", error=e))
+
+
+class ForgotPasswordDialog(QDialog):
+    """Lock screen popup: sends a new password to the email that was entered
+    when the app was set up for the first time."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.worker = None
+        self.pending_password = None
+        self.pending_email = None
+        self.sent = False
+
+        self.setWindowTitle(tr("Forgot password"))
+        self.setWindowIcon(resources.icon("icon.png"))
+        self.setMinimumWidth(440)
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(tr("Enter the email you used when you set up the app. A new password will be sent to it."))
+        info.setAlignment(Qt.AlignCenter)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        self.email_input = QLineEdit()
+        self.email_input.setPlaceholderText("name@example.com")
+        self.email_input.setLayoutDirection(Qt.LeftToRight)  # emails are always left-to-right
+        self.email_input.returnPressed.connect(self.start_send)
+        layout.addWidget(self.email_input)
+
+        self.send_button = QPushButton(tr("Send new password"))
+        self.send_button.clicked.connect(self.start_send)
+        layout.addWidget(self.send_button)
+
+        self.status_label = QLabel("")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        close_button = QPushButton(tr("Close"))
+        close_button.clicked.connect(self.reject)
+        layout.addWidget(close_button)
+
+    def show_status(self, text, error=False):
+        self.status_label.setStyleSheet("color: red;" if error else "")
+        self.status_label.setText(text)
+
+    def set_busy(self, busy):
+        enabled = not busy and not self.sent
+        self.send_button.setEnabled(enabled)
+        self.email_input.setEnabled(enabled)
+
+    def start_send(self):
+        if self.sent:
+            return
+        typed = self.email_input.text().strip()
+        saved = auth.get_email()
+
+        if not EMAIL_PATTERN.match(typed):
+            self.show_status(tr("Please enter a valid email address."), error=True)
+            return
+        if not saved:
+            self.show_status(
+                tr("No email is saved for this app yet. Unlock the app and set one in Settings → Change password."),
+                error=True
+            )
+            return
+        if typed.lower() != saved.lower():
+            self.show_status(tr("This is not the email used to set up the app."), error=True)
+            return
+        if not email_is_configured():
+            self.show_status(
+                tr("The sender email is not set up yet. Fill it in at the top of settings.py."),
+                error=True
+            )
+            return
+
+        self.pending_password = auth.generate_password()
+        self.pending_email = saved  # always sent to the saved address
+        self.set_busy(True)
+        self.show_status(tr("Sending..."))
+
+        self.worker = EmailWorker(saved, self.pending_password, self)
+        self.worker.succeeded.connect(self.on_sent)
+        self.worker.failed.connect(self.on_failed)
+        self.worker.start()
+
+    def on_sent(self):
+        # The password only changes after the email was sent successfully
+        try:
+            auth.set_password(self.pending_password)
+        except OSError as e:
+            self.show_status(
+                tr("The email was sent but the password could not be saved ({error}). The old password is still active.", error=e),
+                error=True
+            )
+        else:
+            self.sent = True
+            self.show_status(
+                tr("A new password was sent to {email}. Use it to unlock the app.",
+                   email=self.pending_email)
+            )
+        self.pending_password = None
+        self.pending_email = None
+        self.set_busy(False)
+
+    def on_failed(self, message):
+        self.pending_password = None
+        self.pending_email = None
+        self.show_status(message + " " + tr("Your password was not changed."), error=True)
+        self.set_busy(False)
+
+    def done(self, result):
+        # Don't close in the middle of sending the email
+        if self.worker is not None and self.worker.isRunning():
+            self.worker.wait(20000)
+        super().done(result)
 
 
 class ChangePasswordPage(QWidget):
