@@ -1,14 +1,16 @@
 import json
 import os
-from pathlib import Path
+
 import paths
 
 RULES_FILE = paths.data_dir() / "rules.json"
 
-RULE_STATES = ("Late-1", "Late-2", "Absent")
+# Only the late rules are fixed amounts. An absent day is not here: it costs
+# one day of that person's own salary (salary / days in the month).
+RULE_STATES = ("Late-1", "Late-2")
 
 # Placeholder values for now, change them from Settings
-DEFAULT_DEDUCTIONS = {"Late-1": 10.0, "Late-2": 20.0, "Absent": 50.0}
+DEFAULT_DEDUCTIONS = {"Late-1": 10.0, "Late-2": 20.0}
 
 
 def format_amount(value):
@@ -49,6 +51,8 @@ def remove_name(name):
     if name in rules["salaries"]:
         del rules["salaries"][name]
         save_rules(rules)
+
+
 def rename_name(old, new):
     """Moves a name's salary to the new name."""
     rules = load_rules()

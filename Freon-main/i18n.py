@@ -17,8 +17,8 @@ MONTHS_AR = [
 DAYS_AR = ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
 
 HINT = (
-    "Click a day to cycle: Present → Late-1 → Late-2 → Absent → empty   |   "
-    "Right-click a day to add a note   |   Click a name to outline their month   |   "
+    "Click a day to cycle: Present → Late-1 → Late-2 → Absent → Holiday → empty   |   "
+    "Right-click a day to add a note or a penalty   |   Click a name to outline their month   |   "
     "Double-click a name to edit it"
 )
 
@@ -57,16 +57,17 @@ AR = {
     "Settings": "الإعدادات",
     "Type a name and press Enter": "اكتب الاسم ثم اضغط Enter",
     HINT: (
-        "اضغط على اليوم للتبديل: حاضر ← تأخير 1 ← تأخير 2 ← غائب ← فارغ   |   "
-        "اضغط بزر الفأرة الأيمن على اليوم لإضافة ملاحظة   |   "
+        "اضغط على اليوم للتبديل: حاضر ← تأخير 1 ← تأخير 2 ← غائب ← إجازة ← فارغ   |   "
+        "اضغط بزر الفأرة الأيمن على اليوم لإضافة ملاحظة أو خصم   |   "
         "اضغط على الاسم لإبراز شهره   |   اضغط مرتين على الاسم لتعديله"
     ),
     "Delete name": "حذف اسم",
-    "Export": "طباعه",
+    "Export": "تصدير",
     "Present": "حاضر",
     "Late-1": "تأخير 1",
     "Late-2": "تأخير 2",
     "Absent": "غائب",
+    "Holiday": "إجازة",
     "Click a name on the left first, then press Delete name.":
         "اضغط على اسم أولاً، ثم اضغط حذف اسم.",
     "Confirm delete": "تأكيد الحذف",
@@ -80,6 +81,12 @@ AR = {
     "Money {name} borrowed on {day} {month}\n(it will be subtracted from their salary):":
         "المبلغ الذي اقترضه {name} يوم {day} {month}\n(سيتم خصمه من راتبه):",
     "Borrowed: {amount}": "السلفة: {amount}",
+    "Add penalty": "خصم",
+    "Edit penalty": "تعديل الخصم",
+    "Remove penalty": "حذف الخصم",
+    "Penalty for {name} on {day} {month}\n(it will be subtracted from their salary):":
+        "خصم على {name} يوم {day} {month}\n(سيتم خصمه من راتبه):",
+    "Penalty: {amount}": "خصم: {amount}",
     "Edit name": "تعديل الاسم",
     'Enter the new name for "{name}":': 'أدخل الاسم الجديد لـ "{name}":',
     '"{name}" already exists.': '"{name}" موجود بالفعل.',
@@ -133,9 +140,10 @@ AR = {
     "Late days": "أيام التأخير",
     "Not marked": "غير مسجل",
     "Borrowed": "السلفة",
+    "Penalty": "خصم",
     "Total discount": "إجمالي الخصم",
     "Monthly salary": "الراتب الشهري",
-    "Salary for {days}/{total} days": "الراتب عن الأيام ({days}/{total})",
+    "Salary for days": "الراتب عن الأيام",
     "Discount": "الخصم",
     "Salary after": "الراتب بعد الخصم",
     "Not set": "غير محدد",

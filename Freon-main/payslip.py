@@ -28,10 +28,11 @@ CARD_H = (PAGE_H - MARGIN_TOP - MARGIN_BOTTOM - GAP * (CARDS_PER_PAGE - 1)) // C
 
 # Text sizes (tenths of a millimetre)
 BODY_SIZE = 38
-ROW_H = 66
-STEP = 88
+ROW_H = 60
+STEP = 74
 
-COUNTED_STATES = ("Present", "Late-1", "Late-2", "Absent")
+# Every state that counts as a registered (paid) day
+COUNTED_STATES = ("Present", "Late-1", "Late-2", "Absent", "Holiday")
 
 BLACK = "#000000"
 WHITE = "#ffffff"
@@ -60,7 +61,7 @@ def warn(parent, title, text):
 # ---------------------------------------------------------------------------
 # Data
 # ---------------------------------------------------------------------------
-def build_slip(name, year, month, records, notes, rules, printed_at):
+def build_slip(name, year, month, records, notes, penalties, rules, printed_at):
     """Collects everything shown on one name's card."""
     days_in_month = calendar.monthrange(year, month)[1]
 
@@ -70,19 +71,31 @@ def build_slip(name, year, month, records, notes, rules, printed_at):
         if 1 <= day <= days_in_month and state in counts:
             counts[state] += 1
 
+    salary = rules["salaries"].get(name)  # None = not set yet
+
+    # Late-1 and Late-2: a fixed amount each time (from Settings)
     discounts = []  # (state, how many times, value each, total)
     for state in payroll.RULE_STATES:
         rate = rules["deductions"].get(state, 0.0)
         discounts.append((state, counts[state], rate, counts[state] * rate))
 
-    borrowed = sum(notes.get((year, month, name), {}).values())
-    total_discount = sum(d[3] for d in discounts) + borrowed
+    # Absent: one day of this person's own salary for every absent day
+    if salary is None:
+        day_price = 0.0
+        absent_total = 0.0
+    else:
+        day_price = round(salary / days_in_month, 2)
+        absent_total = round(counts["Absent"] * salary / days_in_month, 2)
+    discounts.append(("Absent", counts["Absent"], day_price, absent_total))
 
-    # Only the days that were registered (present, late or absent) are paid.
-    # Days that were never marked do not count.
+    borrowed = sum(notes.get((year, month, name), {}).values())
+    penalty = sum(penalties.get((year, month, name), {}).values())
+    total_discount = sum(d[3] for d in discounts) + borrowed + penalty
+
+    # Only the days that were registered (present, late, absent or holiday) are
+    # paid. Days that were never marked do not count.
     counted_days = sum(counts.values())
 
-    salary = rules["salaries"].get(name)  # None = not set yet
     prorated = None
     after = None
     if salary is not None:
@@ -101,6 +114,7 @@ def build_slip(name, year, month, records, notes, rules, printed_at):
         "counted_days": counted_days,
         "discounts": discounts,
         "borrowed": borrowed,
+        "penalty": penalty,
         "total_discount": total_discount,
         "salary_before": salary,
         "salary_prorated": prorated,
@@ -124,25 +138,45 @@ def text_width(text, size, bold=False):
 
 def put(painter, rect, text, side, rtl):
     """Draws text against the 'left' or 'right' edge of rect.
-    rtl sets the reading direction of the text (True for Arabic)."""
+    rtl is True for Arabic text. The text gets explicit direction marks, so
+    brackets, colons and numbers come out right on screen, PDF and printer."""
     flags = Qt.AlignVCenter | Qt.AlignAbsolute
     flags |= Qt.AlignLeft if side == "left" else Qt.AlignRight
+    text = ("\u202b" if rtl else "\u202a") + text + "\u202c"
     painter.setLayoutDirection(Qt.RightToLeft if rtl else Qt.LeftToRight)
     painter.drawText(rect, flags, text)
 
 
-def draw_row(painter, x, y, w, label, value, rtl, bold=False, color=BLACK):
+def draw_row(painter, x, y, w, label, value, rtl, bold=False, color=BLACK, suffix=""):
+    """One line: label on the start side, value on the end side.
+    suffix (for example "(20/30)") is drawn as a separate piece right after the label."""
     start = "right" if rtl else "left"
     end = "left" if rtl else "right"
+    gap = 18 if suffix else 0
 
     size = BODY_SIZE
-    # Shrinks a little only when a very long label + value would not fit
-    while size > 22 and text_width(label, size, bold) + text_width(value, size, bold) + 30 > w:
+    # Shrinks a little only when a very long line would not fit
+    while size > 22:
+        used = text_width(label, size, bold) + text_width(value, size, bold) + 30
+        if suffix:
+            used += text_width(suffix, size, bold) + gap
+        if used <= w:
+            break
         size -= 2
+
     painter.setFont(make_font(size, bold))
     painter.setPen(QColor(color))
     rect = QRectF(x, y, w, ROW_H)
     put(painter, rect, label, start, rtl)
+
+    if suffix:
+        label_w = text_width(label, size, bold)
+        if rtl:
+            suffix_rect = QRectF(x, y, w - label_w - gap, ROW_H)
+        else:
+            suffix_rect = QRectF(x + label_w + gap, y, w - label_w - gap, ROW_H)
+        put(painter, suffix_rect, suffix, start, False)
+
     put(painter, rect, value, end, False)  # numbers always read left-to-right
 
 
@@ -177,14 +211,14 @@ def draw_card(painter, rect, s, rtl):
     top = rect.y()
     inner_w = rect.width() - 2 * pad
 
-    # ----- Header: name, month and date/time -----
+    # ----- Header: name (start side), month and date/time (other side) -----
     name_w = inner_w * 0.55
     if rtl:
         name_rect = QRectF(x + inner_w - name_w, top + 15, name_w, 100)
-        info_rect = QRectF(x, top + 15, inner_w - name_w, 100)
+        info_x, info_w = x, inner_w - name_w
     else:
         name_rect = QRectF(x, top + 15, name_w, 100)
-        info_rect = QRectF(x + name_w, top + 15, inner_w - name_w, 100)
+        info_x, info_w = x + name_w, inner_w - name_w
 
     name_font = make_font(60, True)
     name = QFontMetrics(name_font).elidedText(s["name"], Qt.ElideRight, int(name_w))
@@ -194,11 +228,10 @@ def draw_card(painter, rect, s, rtl):
 
     painter.setFont(make_font(30))
     printed = s["printed_at"].strftime("%Y-%m-%d  %H:%M")
-    info = (
-        f"{tr('Month:')} {i18n.month_name(s['month'])} {s['year']}\n"
-        f"{tr('Printed:')} {ltr(printed)}"
-    )
-    put(painter, info_rect, info, end, rtl)
+    month_line = f"{tr('Month:')} {i18n.month_name(s['month'])} {ltr(str(s['year']))}"
+    printed_line = f"{tr('Printed:')} {ltr(printed)}"
+    put(painter, QRectF(info_x, top + 15, info_w, 50), month_line, end, rtl)
+    put(painter, QRectF(info_x, top + 65, info_w, 50), printed_line, end, rtl)
 
     painter.setPen(QPen(black, 2))
     painter.drawLine(QPointF(x, top + 125), QPointF(x + inner_w, top + 125))
@@ -231,23 +264,26 @@ def draw_card(painter, rect, s, rtl):
         (tr("Present"), str(counts["Present"])),
         (tr("Late days"), str(s["late_days"])),
         (tr("Absent"), str(counts["Absent"])),
+        (tr("Holiday"), str(counts["Holiday"])),
         (tr("Not marked"), str(s["not_marked"])),
     ]
     for i, (label, value) in enumerate(attendance_rows):
         draw_row(painter, xs[0], row_y + i * STEP, widths[0], label, value, rtl)
 
-    # Column 2: discounts (Late-1: 3 x 10.00 = 30.00 ...)
+    # Column 2: discounts (Late-1: 3 x 10.00 = 30.00 ...), borrowed, penalty, total
     for i, (state, count, rate, amount) in enumerate(s["discounts"]):
         draw_row(painter, xs[1], row_y + i * STEP, widths[1], tr(state),
                  f"{count} × {money(rate)} = {money(amount)}", rtl)
     borrowed_y = row_y + len(s["discounts"]) * STEP
     draw_row(painter, xs[1], borrowed_y, widths[1], tr("Borrowed"),
              money(s["borrowed"]), rtl)
+    draw_row(painter, xs[1], borrowed_y + STEP, widths[1], tr("Penalty"),
+             money(s["penalty"]), rtl)
 
-    total_y = borrowed_y + STEP
+    total_y = borrowed_y + 2 * STEP
     painter.setPen(QPen(black, 2))
-    painter.drawLine(QPointF(xs[1], total_y), QPointF(xs[1] + widths[1], total_y))
-    draw_row(painter, xs[1], total_y + 6, widths[1], tr("Total discount"),
+    painter.drawLine(QPointF(xs[1], total_y - 6), QPointF(xs[1] + widths[1], total_y - 6))
+    draw_row(painter, xs[1], total_y, widths[1], tr("Total discount"),
              money(s["total_discount"]), rtl, bold=True)
 
     # Column 3: monthly salary / salary for the counted days / discount / after
@@ -258,10 +294,9 @@ def draw_card(painter, rect, s, rtl):
 
     draw_row(painter, xs[2], row_y, widths[2], tr("Monthly salary"),
              not_set if before is None else money(before), rtl)
-    draw_row(painter, xs[2], row_y + STEP, widths[2],
-             tr("Salary for {days}/{total} days",
-                days=s["counted_days"], total=s["days_in_month"]),
-             not_set if prorated is None else money(prorated), rtl)
+    draw_row(painter, xs[2], row_y + STEP, widths[2], tr("Salary for days"),
+             not_set if prorated is None else money(prorated), rtl,
+             suffix=f"({s['counted_days']}/{s['days_in_month']})")
     draw_row(painter, xs[2], row_y + 2 * STEP, widths[2], tr("Discount"),
              "- " + money(s["total_discount"]), rtl)
 
@@ -304,7 +339,11 @@ def draw_page(painter, target, slips, page_no, page_count):
 
     painter.setPen(QColor(BLACK))
     painter.setFont(make_font(26))
-    footer = f"FREON  -  {tr('Page')} {ltr(f'{page_no} / {page_count}')}"
+    numbers = ltr(f"{page_no} / {page_count}")
+    if rtl:
+        footer = f"{tr('Page')} {numbers}  -  {ltr('FREON')}"
+    else:
+        footer = f"FREON  -  {tr('Page')} {numbers}"
     put(painter, QRectF(MARGIN_X, PAGE_H - MARGIN_BOTTOM + 25, CARD_W, 50),
         footer, "left" if rtl else "right", rtl)
     painter.restore()
