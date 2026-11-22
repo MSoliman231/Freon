@@ -2,7 +2,6 @@ import calendar
 import json
 import os
 from datetime import date, datetime
-from pathlib import Path
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
@@ -15,9 +14,9 @@ from PySide6.QtCore import Qt, Signal
 
 import auth
 import i18n
+import paths
 import payroll
 import payslip
-import paths
 import resources
 from i18n import tr
 from settings import SettingsWindow
@@ -25,12 +24,13 @@ from settings import SettingsWindow
 DATA_FILE = paths.data_dir() / "attendance_data.json"
 
 # Click a cell to cycle through these states (stored in English in the file)
-STATES = ["", "Present", "Late-1", "Late-2", "Absent"]
+STATES = ["", "Present", "Late-1", "Late-2", "Absent", "Holiday"]
 STATE_COLORS = {  # state: (background, text)
     "Present": ("#2e7d32", "white"),
     "Late-1": ("#f9a825", "black"),
     "Late-2": ("#ef6c00", "white"),
     "Absent": ("#c62828", "white"),
+    "Holiday": ("#1565c0", "white"),
 }
 LEGACY_STATES = {"Late": "Late-1"}  # old saved data used plain "Late"
 
@@ -160,8 +160,9 @@ class AttendancePage(QWidget):
         self.year = today.year
         self.month = today.month
         self.names = []
-        self.records = {}  # (year, month, name) -> {day: state}
-        self.notes = {}    # (year, month, name) -> {day: money borrowed}
+        self.records = {}    # (year, month, name) -> {day: state}
+        self.notes = {}      # (year, month, name) -> {day: money borrowed}
+        self.penalties = {}  # (year, month, name) -> {day: penalty amount}
 
         self.load_data()
 
@@ -212,14 +213,14 @@ class AttendancePage(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
         self.table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self.table.horizontalHeader().setDefaultSectionSize(80)
+        self.table.horizontalHeader().setDefaultSectionSize(90)
         self.table.verticalHeader().setDefaultSectionSize(48)
         self.table.verticalHeader().setSectionsClickable(True)
         self.table.cellTapped.connect(self.on_cell_clicked)
         self.table.verticalHeader().sectionClicked.connect(self.on_name_clicked)
         self.table.verticalHeader().sectionDoubleClicked.connect(self.rename_name)
 
-        # Right click on a day opens the note menu
+        # Right click on a day opens the note / penalty menu
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_cell_menu)
 
@@ -249,7 +250,7 @@ class AttendancePage(QWidget):
 
     # ---------- Saving / loading ----------
     def save_data(self):
-        data = {"names": self.names, "records": {}, "notes": {}}
+        data = {"names": self.names, "records": {}, "notes": {}, "penalties": {}}
         for (year, month, name), days in self.records.items():
             days = {str(d): s for d, s in days.items() if s}
             if not days:
@@ -257,12 +258,13 @@ class AttendancePage(QWidget):
             key = f"{year}-{month:02d}"
             data["records"].setdefault(key, {})[name] = days
 
-        for (year, month, name), days in self.notes.items():
-            days = {str(d): a for d, a in days.items() if a > 0}
-            if not days:
-                continue
-            key = f"{year}-{month:02d}"
-            data["notes"].setdefault(key, {})[name] = days
+        for source, target in ((self.notes, "notes"), (self.penalties, "penalties")):
+            for (year, month, name), days in source.items():
+                days = {str(d): a for d, a in days.items() if a > 0}
+                if not days:
+                    continue
+                key = f"{year}-{month:02d}"
+                data[target].setdefault(key, {})[name] = days
 
         tmp = DATA_FILE.with_suffix(".tmp")
         try:
@@ -285,12 +287,13 @@ class AttendancePage(QWidget):
                     self.records[(year, month, name)] = {
                         int(d): LEGACY_STATES.get(s, s) for d, s in days.items()
                     }
-            for key, people in data.get("notes", {}).items():
-                year, month = map(int, key.split("-"))
-                for name, days in people.items():
-                    self.notes[(year, month, name)] = {
-                        int(d): float(a) for d, a in days.items()
-                    }
+            for field, target in (("notes", self.notes), ("penalties", self.penalties)):
+                for key, people in data.get(field, {}).items():
+                    year, month = map(int, key.split("-"))
+                    for name, days in people.items():
+                        target[(year, month, name)] = {
+                            int(d): float(a) for d, a in days.items()
+                        }
         except (OSError, ValueError, AttributeError) as e:
             print(f"Could not load attendance: {e}")
 
@@ -310,7 +313,7 @@ class AttendancePage(QWidget):
         else:
             self.outline_delegate.outlined_row = row
         self.table.viewport().update()
-        
+
     def rename_name(self, row):
         if row < 0 or row >= len(self.names):
             return
@@ -336,13 +339,16 @@ class AttendancePage(QWidget):
             )
             return
 
-        # Move all their records, notes and salary to the new name
+        # Move all their records, notes, penalties and salary to the new name
         self.names[row] = new
         self.records = {
             (y, m, new if n == old else n): v for (y, m, n), v in self.records.items()
         }
         self.notes = {
             (y, m, new if n == old else n): v for (y, m, n), v in self.notes.items()
+        }
+        self.penalties = {
+            (y, m, new if n == old else n): v for (y, m, n), v in self.penalties.items()
         }
         payroll.rename_name(old, new)
 
@@ -389,6 +395,7 @@ class AttendancePage(QWidget):
         self.names.pop(row)
         self.records = {k: v for k, v in self.records.items() if k[2] != name}
         self.notes = {k: v for k, v in self.notes.items() if k[2] != name}
+        self.penalties = {k: v for k, v in self.penalties.items() if k[2] != name}
         payroll.remove_name(name)
         self.outline_delegate.outlined_row = None
         self.save_data()
@@ -423,14 +430,25 @@ class AttendancePage(QWidget):
         else:
             self.notes.get(key, {}).pop(day, None)
 
-    def borrowed_total(self, name, year, month):
-        """Total money borrowed by a name in a month (to subtract from salary)."""
-        return sum(self.notes.get((year, month, name), {}).values())
+    def get_penalty(self, name, day):
+        return self.penalties.get((self.year, self.month, name), {}).get(day, 0.0)
 
-    def make_item(self, state, note=0.0):
+    def set_penalty(self, name, day, amount):
+        key = (self.year, self.month, name)
+        if amount > 0:
+            self.penalties.setdefault(key, {})[day] = amount
+        else:
+            self.penalties.get(key, {}).pop(day, None)
+
+    def make_item(self, state, note=0.0, penalty=0.0):
         lines = [tr(state)] if state else []
+        parts = []
         if note > 0:
-            lines.append(f"-{payroll.format_amount(note)}")
+            parts.append(f"-{payroll.format_amount(note)}")
+        if penalty > 0:
+            parts.append(f"⚠{payroll.format_amount(penalty)}")
+        if parts:
+            lines.append("  ".join(parts))
 
         item = QTableWidgetItem("\n".join(lines))
         item.setTextAlignment(Qt.AlignCenter)
@@ -438,9 +456,20 @@ class AttendancePage(QWidget):
             bg, fg = STATE_COLORS[state]
             item.setBackground(QBrush(QColor(bg)))
             item.setForeground(QBrush(QColor(fg)))
+
+        tips = []
         if note > 0:
-            item.setToolTip(tr("Borrowed: {amount}", amount=payroll.format_amount(note)))
+            tips.append(tr("Borrowed: {amount}", amount=payroll.format_amount(note)))
+        if penalty > 0:
+            tips.append(tr("Penalty: {amount}", amount=payroll.format_amount(penalty)))
+        if tips:
+            item.setToolTip("\n".join(tips))
         return item
+
+    def cell_item(self, name, day, state=None):
+        if state is None:
+            state = self.get_state(name, day)
+        return self.make_item(state, self.get_note(name, day), self.get_penalty(name, day))
 
     def refresh_table(self):
         days = calendar.monthrange(self.year, self.month)[1]
@@ -459,11 +488,7 @@ class AttendancePage(QWidget):
 
         for row, name in enumerate(self.names):
             for col in range(days):
-                day = col + 1
-                self.table.setItem(
-                    row, col,
-                    self.make_item(self.get_state(name, day), self.get_note(name, day))
-                )
+                self.table.setItem(row, col, self.cell_item(name, col + 1))
 
     def on_cell_clicked(self, row, col):
         name = self.names[row]
@@ -471,10 +496,14 @@ class AttendancePage(QWidget):
         current = self.get_state(name, day)
         new_state = STATES[(STATES.index(current) + 1) % len(STATES)]
         self.set_state(name, day, new_state)
-        self.table.setItem(row, col, self.make_item(new_state, self.get_note(name, day)))
+        self.table.setItem(row, col, self.cell_item(name, day, new_state))
         self.save_data()  # auto-save on every edit
 
-    # ---------- Notes (right click) ----------
+    def update_cell(self, row, col):
+        name = self.names[row]
+        self.table.setItem(row, col, self.cell_item(name, col + 1))
+
+    # ---------- Notes and penalties (right click) ----------
     def show_cell_menu(self, pos):
         index = self.table.indexAt(pos)
         if not index.isValid():
@@ -483,51 +512,75 @@ class AttendancePage(QWidget):
         name = self.names[row]
         day = col + 1
         has_note = self.get_note(name, day) > 0
+        has_penalty = self.get_penalty(name, day) > 0
 
         menu = QMenu(self)
-        add_action = menu.addAction(tr("Edit note") if has_note else tr("Add note"))
-        remove_action = menu.addAction(tr("Remove note")) if has_note else None
+        note_action = menu.addAction(tr("Edit note") if has_note else tr("Add note"))
+        remove_note = menu.addAction(tr("Remove note")) if has_note else None
+        menu.addSeparator()
+        penalty_action = menu.addAction(tr("Edit penalty") if has_penalty else tr("Add penalty"))
+        remove_penalty = menu.addAction(tr("Remove penalty")) if has_penalty else None
 
         chosen = menu.exec(self.table.viewport().mapToGlobal(pos))
         if chosen is None:
             return
-        if chosen == add_action:
+        if chosen == note_action:
             self.add_note(row, col)
-        elif chosen == remove_action:
+        elif chosen == penalty_action:
+            self.add_penalty(row, col)
+        elif chosen == remove_note:
             self.set_note(name, day, 0)
             self.update_cell(row, col)
             self.save_data()
+        elif chosen == remove_penalty:
+            self.set_penalty(name, day, 0)
+            self.update_cell(row, col)
+            self.save_data()
+
+    def ask_amount(self, title, label, current):
+        """Small box that asks for a number. Returns None if cancelled."""
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.setInputMode(QInputDialog.DoubleInput)
+        dialog.setDoubleRange(0, 1_000_000_000)
+        dialog.setDoubleDecimals(2)
+        dialog.setDoubleValue(current)
+        dialog.setLabelText(label)
+        dialog.setOkButtonText(tr("OK"))
+        dialog.setCancelButtonText(tr("Cancel"))
+        if dialog.exec() != QDialog.Accepted:
+            return None
+        return dialog.doubleValue()
 
     def add_note(self, row, col):
         name = self.names[row]
         day = col + 1
-
-        dialog = QInputDialog(self)
-        dialog.setWindowTitle(tr("Add note"))
-        dialog.setInputMode(QInputDialog.DoubleInput)
-        dialog.setDoubleRange(0, 1_000_000_000)
-        dialog.setDoubleDecimals(2)
-        dialog.setDoubleValue(self.get_note(name, day))
-        dialog.setLabelText(tr(
-            "Money {name} borrowed on {day} {month}\n(it will be subtracted from their salary):",
-            name=name, day=day, month=i18n.month_name(self.month)
-        ))
-        dialog.setOkButtonText(tr("OK"))
-        dialog.setCancelButtonText(tr("Cancel"))
-        if dialog.exec() != QDialog.Accepted:
+        amount = self.ask_amount(
+            tr("Add note"),
+            tr("Money {name} borrowed on {day} {month}\n(it will be subtracted from their salary):",
+               name=name, day=day, month=i18n.month_name(self.month)),
+            self.get_note(name, day)
+        )
+        if amount is None:
             return
-
-        self.set_note(name, day, dialog.doubleValue())
+        self.set_note(name, day, amount)
         self.update_cell(row, col)
         self.save_data()
 
-    def update_cell(self, row, col):
+    def add_penalty(self, row, col):
         name = self.names[row]
         day = col + 1
-        self.table.setItem(
-            row, col,
-            self.make_item(self.get_state(name, day), self.get_note(name, day))
+        amount = self.ask_amount(
+            tr("Add penalty"),
+            tr("Penalty for {name} on {day} {month}\n(it will be subtracted from their salary):",
+               name=name, day=day, month=i18n.month_name(self.month)),
+            self.get_penalty(name, day)
         )
+        if amount is None:
+            return
+        self.set_penalty(name, day, amount)
+        self.update_cell(row, col)
+        self.save_data()
 
     # ---------- Export ----------
     def open_export_dialog(self):
@@ -565,7 +618,7 @@ class AttendancePage(QWidget):
         slips = [
             payslip.build_slip(
                 name, self.year, self.month,
-                self.records, self.notes, rules, now
+                self.records, self.notes, self.penalties, rules, now
             )
             for name in selected_names
         ]
